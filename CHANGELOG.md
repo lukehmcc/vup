@@ -1,6 +1,6 @@
 # Vup Changelog
 
-## main
+## Beta 0.12.0
 
 - Added "Delete permanently" action for files and directories in trash
 - Improved "Delete local copies" action
@@ -8,6 +8,7 @@
 - Added "Copy link" button for already shared directories
 - Added "Gallery" view type when sharing files
 - Custom themes: Added support for background images
+- Added fs checks to allow running in flatpak enviornment
 
 ## Beta 0.11.0
 
