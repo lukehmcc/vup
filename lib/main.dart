@@ -4,13 +4,13 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:alfred/alfred.dart';
-import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:contextmenu/contextmenu.dart';
 import 'package:filesystem_dac/cache/hive.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:s5_server/logger/console.dart';
 import 'package:cryptography/helpers.dart';
 import 'package:s5_server/node.dart';
@@ -25,6 +25,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:vup/model/sync_task.dart';
 import 'package:vup/service/notification/provider/flutter.dart';
 import 'package:vup/theme.dart';
+import 'package:vup/utils/date_format.dart';
 import 'package:vup/utils/device_info/flutter.dart';
 import 'package:vup/utils/external_ip/flutter.dart';
 import 'package:vup/utils/ffmpeg/flutter.dart';
@@ -34,6 +35,7 @@ import 'package:vup/utils/strings.dart';
 import 'package:vup/utils/temp_dir.dart';
 import 'package:vup/view/tab.dart';
 import 'package:vup/widget/app_bar_wrapper.dart';
+import 'package:vup/widget/move_window.dart';
 import 'package:vup/widget/vup_logo.dart';
 import 'package:vup/widget/window_buttons.dart';
 import 'package:uni_links/uni_links.dart';
@@ -47,6 +49,7 @@ import 'package:vup/view/browse.dart';
 
 import 'package:vup/view/login_or_register.dart';
 import 'package:vup/view/sidebar.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:xdg_directories/xdg_directories.dart';
 import 'package:selectable_autolink_text/selectable_autolink_text.dart';
 
@@ -335,7 +338,7 @@ void main(List<String> args) async {
         headers: {
           'content-type': 'application/json',
         },
-      );
+      ).timeout(Duration(milliseconds: 1000));
       if (res.statusCode != 200) {
         throw 'Not running';
       }
@@ -348,7 +351,7 @@ void main(List<String> args) async {
     vupServer.post('/launch', (req, res) async {
       try {
         if (!isAppWindowVisible) {
-          appWindow.show();
+          windowManager.show();
           isAppWindowVisible = true;
         }
         final data = await req.bodyAsJsonMap;
@@ -365,13 +368,15 @@ void main(List<String> args) async {
 
     vupServer.get('/vup-share-link', (req, res) async {
       try {
-        if (Platform.isLinux || Platform.isWindows) {
-          if (!isAppWindowVisible) {
-            appWindow.show();
-            isAppWindowVisible = true;
-          }
+        if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+          try {
+            if (!isAppWindowVisible) {
+              windowManager.show();
+              isAppWindowVisible = true;
+            }
 
-          appWindow.restore();
+            windowManager.restore();
+          } catch (_) {}
         }
 
         final queryParameters = req.requestedUri.queryParameters;
@@ -518,6 +523,29 @@ void main(List<String> args) async {
       MyApp(),
       /*  ), */
     );
+    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+      await windowManager.ensureInitialized();
+
+      WindowOptions windowOptions = WindowOptions(
+        minimumSize: Size(300, 440),
+        title: 'Vup Cloud Storage', // TODO Localization
+
+        // size: Size(800, 600),
+        center: true,
+        backgroundColor: Colors.transparent,
+        skipTaskbar: false,
+        titleBarStyle: TitleBarStyle.hidden,
+      );
+
+      windowManager.waitUntilReadyToShow(windowOptions, () async {
+        if (isStartMinimizedEnabled) {
+          await windowManager.hide();
+        } else {
+          await windowManager.show();
+          await windowManager.focus();
+        }
+      });
+    }
 
     // await Window.initialize();
 
@@ -526,21 +554,9 @@ void main(List<String> args) async {
       color: Color(0xCC222222),
     ); */
 
-    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      doWhenWindowReady(() {
-        appWindow.minSize = Size(300, 440);
-        appWindow.size = Size(1080, 640);
-        //appWindow.size = Size(1536, 960);
-        appWindow.alignment = Alignment.center;
-        appWindow.title = 'Vup Cloud Storage'; // TODO Localization
-
-        if (isStartMinimizedEnabled) {
-          appWindow.hide();
-        } else {
-          appWindow.show();
-        }
-      });
-    }
+    initializeDateFormatting().then((value) {
+      dateTimeLocale = Platform.localeName;
+    });
   }, (e, st) {
     logger.error(e);
     logger.verbose(st);
@@ -618,8 +634,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with TrayListener {
-  late MultiSplitViewController splitCtrl;
-
   void handleSharedLink(String? link) {
     logger.info('handleSharedLink $link');
     if (link == null) return;
@@ -661,9 +675,9 @@ class _HomePageState extends State<HomePage> with TrayListener {
     logger.verbose('onTrayMenuItemClick ${menuItem.key}');
     if (menuItem.key == 'toggle_window_visibility') {
       if (isAppWindowVisible) {
-        appWindow.hide();
+        windowManager.hide();
       } else {
-        appWindow.show();
+        windowManager.show();
       }
       isAppWindowVisible = !isAppWindowVisible;
     } else if (menuItem.key == 'exit_app') {
@@ -673,8 +687,6 @@ class _HomePageState extends State<HomePage> with TrayListener {
 
   @override
   void initState() {
-    initSplitCtrl();
-
     if (Platform.isAndroid || Platform.isIOS) {
       getInitialLink().then(handleSharedLink);
       linkStream.listen((event) {
@@ -692,19 +704,6 @@ class _HomePageState extends State<HomePage> with TrayListener {
     TrayManager.instance.removeListener(this);
 
     super.dispose();
-  }
-
-  void initSplitCtrl() {
-    final sidebarWeight = max(0.16, min(250 / (widget.initialWidth), 0.5));
-
-    final rest = 1 - sidebarWeight;
-
-    splitCtrl = MultiSplitViewController(
-      weights: [
-        sidebarWeight,
-        rest,
-      ],
-    );
   }
 
   late BuildContext buildContext;
@@ -960,24 +959,22 @@ class _HomePageState extends State<HomePage> with TrayListener {
           body: context.isMobile
               ? BrowseView(pathNotifier: appLayoutState.currentTab[0].state)
               : SafeArea(
-                  child: MultiSplitViewTheme(
-                    data: MultiSplitViewThemeData(
-                      dividerThickness: 6,
-                      dividerPainter: DividerPainters.background(
-                        color: Theme.of(context).dividerColor,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 220,
+                        child: SidebarView(appLayoutState: appLayoutState),
                       ),
-                    ),
-                    child: MultiSplitView(
-                      controller: splitCtrl,
-                      minimalSize: 200,
-                      children: [
-                        SidebarView(appLayoutState: appLayoutState),
-                        // for (final view in appLayoutState.views)
-                        Column(
+                      VerticalDivider(
+                        width: 4,
+                        thickness: 4,
+                      ),
+                      Expanded(
+                        child: Column(
                           children: [
                             SizedBox(
                               height: (Platform.isWindows || Platform.isLinux)
-                                  ? appWindow.titleBarHeight
+                                  ? titleBarHeight
                                   : 32,
                               child: Container(
                                 color: Theme.of(context).dividerColor,
@@ -996,10 +993,10 @@ class _HomePageState extends State<HomePage> with TrayListener {
                                                       50) >
                                                   cons.maxWidth;
                                               return /* Padding(
-                                                    padding: const EdgeInsets.only(
-                                                      top: 6.0,
-                                                    ),
-                                                    child: */
+                                                          padding: const EdgeInsets.only(
+                                                            top: 6.0,
+                                                          ),
+                                                          child: */
                                                   Row(
                                                 children: [
                                                   for (int i = 0;
@@ -1039,9 +1036,9 @@ class _HomePageState extends State<HomePage> with TrayListener {
                               ),
                             ),
                             /*    Container(
-                                height: 6,
-                                color: Theme.of(context).dividerColor,
-                              ), */
+                                      height: 6,
+                                      color: Theme.of(context).dividerColor,
+                                    ), */
                             Expanded(
                               child: StreamBuilder<Null>(
                                   stream: appLayoutState.stream,
@@ -1053,10 +1050,8 @@ class _HomePageState extends State<HomePage> with TrayListener {
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                    /*   );
-                          }), */
+                      ),
+                    ],
                   ),
                 ),
         ),
@@ -1100,7 +1095,7 @@ class _HomePageState extends State<HomePage> with TrayListener {
         },
         child: Container(
           color: isSelected
-              ? Theme.of(context).backgroundColor
+              ? Theme.of(context).scaffoldBackgroundColor
               : Colors.transparent,
           padding: const EdgeInsets.all(2),
           /* margin:
@@ -1260,9 +1255,8 @@ class _AuthPageState extends State<AuthPage> {
       body: Column(
         children: [
           SizedBox(
-            height: (Platform.isWindows || Platform.isLinux)
-                ? appWindow.titleBarHeight
-                : 32,
+            height:
+                (Platform.isWindows || Platform.isLinux) ? titleBarHeight : 32,
             child: Container(
               color: Theme.of(context).dividerColor,
               child: Row(

@@ -6,6 +6,8 @@ import 'package:flutter_state_notifier/flutter_state_notifier.dart';
 import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vup/actions/base.dart';
+import 'package:vup/actions/create_directory.dart';
+import 'package:vup/actions/create_file.dart';
 import 'package:vup/actions/upload_directory.dart';
 import 'package:vup/actions/upload_files.dart';
 
@@ -151,7 +153,7 @@ class _BrowseViewState extends State<BrowseView> {
                     focusNode.requestFocus();
                   }
                 },
-                child: StreamBuilder<Null>(
+                child: StreamBuilder<void>(
                     stream: widget.pathNotifier.stream,
                     builder: (context, snapshot) {
                       final uri = storageService.dac
@@ -226,15 +228,17 @@ class _BrowseViewState extends State<BrowseView> {
 
                           final files = <File>[];
                           final directories = <Directory>[];
-                          logger.verbose(detail.urls);
+                          logger.verbose(detail.files);
+                          logger.verbose(detail.files.map((e) => e.path));
 
                           if (Platform.isWindows) {
-                            for (final url in detail.urls) {
-                              final path = Uri.decodeFull(url.path)
+                            for (final url in detail.files) {
+                              final path = url.path;
+                              /* final path = Uri.decodeFull(url.path)
                                   .split('/')
                                   .where((element) => element.isNotEmpty)
                                   .toList()
-                                  .join('\\');
+                                  .join('\\'); */
                               if (File(path).existsSync()) {
                                 files.add(
                                   File(
@@ -250,8 +254,9 @@ class _BrowseViewState extends State<BrowseView> {
                               }
                             }
                           } else {
-                            for (final url in detail.urls) {
-                              final path = Uri.decodeFull(url.path);
+                            for (final url in detail.files) {
+                              final path = url.path;
+                              /* Uri.decodeFull(url.path) */;
                               if (File(path).existsSync()) {
                                 files.add(
                                   File(
@@ -413,6 +418,72 @@ class _BrowseViewState extends State<BrowseView> {
                                           ),
                                     ],
                                   ),
+                                  SizedBox(
+                                    width: 8,
+                                  ),
+                                  PopupMenuButton(
+                                    tooltip: 'Create file or directory',
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 5,
+                                        horizontal: 12,
+                                      ),
+                                      child: Text(
+                                        'Create',
+                                        style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary,
+                                        ),
+                                      ),
+                                    ),
+                                    itemBuilder: (context) => [
+                                      for (final ai in generateActions(
+                                        false,
+                                        null,
+                                        pathNotifier,
+                                        context,
+                                        true,
+                                        widget.pathNotifier.hasWriteAccess(),
+                                        storageService.dac
+                                            .getDirectoryStateChangeNotifier(
+                                              widget.pathNotifier.value
+                                                  .join('/'),
+                                            )
+                                            .state,
+                                      ))
+                                        if (ai.action is CreateFileVupAction ||
+                                            ai.action
+                                                is CreateDirectoryVupAction)
+                                          PopupMenuItem(
+                                            onTap: () async {
+                                              try {
+                                                await ai.action
+                                                    .execute(context, ai);
+                                              } catch (e, st) {
+                                                showErrorDialog(context, e, st);
+                                              }
+                                            },
+                                            child: Row(
+                                              children: [
+                                                Icon(ai.icon),
+                                                SizedBox(
+                                                  width: 8,
+                                                ),
+                                                Text(
+                                                  ai.label,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                    ],
+                                  ),
 
                                   /* SizedBox(
                                     width: 8,
@@ -440,7 +511,9 @@ class _BrowseViewState extends State<BrowseView> {
                                       .state,
                                 )) {
                                   if (!(ai.action is UploadFilesVupAction ||
-                                      ai.action is UploadDirectoryVupAction))
+                                      ai.action is UploadDirectoryVupAction ||
+                                      ai.action is CreateDirectoryVupAction ||
+                                      ai.action is CreateFileVupAction))
                                     actions.add(Tooltip(
                                       message: ai.label,
                                       child: InkWell(
@@ -890,14 +963,15 @@ class _BrowseViewState extends State<BrowseView> {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          'You are browsing a shared directory',
+                                          'You are browsing a Shared Directory',
                                           style: TextStyle(
                                             color: Colors.black,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
                                       ),
-                                      if (!isDirectoryAddedToSharedWithMe)
+                                      if (!isDirectoryAddedToSharedWithMe &&
+                                          false)
                                         ElevatedButton(
                                           onPressed: () async {
                                             showLoadingDialog(
@@ -1066,11 +1140,65 @@ class _BrowseViewState extends State<BrowseView> {
                                   ),
                                 ),
                               ),
-                            StreamBuilder<Null>(
+                            StreamBuilder<void>(
                                 stream: directoryViewState.stream,
                                 builder: (context, _) {
                                   return LayoutBuilder(
                                       builder: (context, cons) {
+                                    if (cons.maxWidth <= 658) {
+                                      return Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            'Sort by',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyLarge,
+                                          ),
+                                          SizedBox(
+                                            width: 8,
+                                          ),
+                                          DropdownButton<Type>(
+                                            value: directoryViewState
+                                                .firstSortStep.runtimeType,
+                                            items: [
+                                              for (final item
+                                                  in allSortSteps.values)
+                                                DropdownMenuItem(
+                                                  child: Text('${item.name}'),
+                                                  value: item.runtimeType,
+                                                ),
+                                            ],
+                                            onChanged: (val) {
+                                              directoryViewState.click(
+                                                allSortSteps.values.firstWhere(
+                                                  (e) => e.runtimeType == val,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          InkWell(
+                                            onTap: () {
+                                              directoryViewState.click(
+                                                directoryViewState
+                                                    .firstSortStep,
+                                              );
+                                            },
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.all(6.0),
+                                              child: Icon(
+                                                directoryViewState.ascending
+                                                    ? UniconsLine.angle_down
+                                                    : UniconsLine.angle_up,
+                                                size: 36,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }
                                     return Row(
                                       // TODO Including simplified mobile view (only sort)
                                       // TODO Also show simplified view in non-list mode
@@ -1103,10 +1231,8 @@ class _BrowseViewState extends State<BrowseView> {
                                         for (final step in [
                                           NameSortStep(),
                                           // VersionSortStep(),
-                                          if (cons.maxWidth > 650) ...[
-                                            AvailableOfflineSortStep(),
-                                            SizeSortStep(),
-                                          ],
+                                          AvailableOfflineSortStep(),
+                                          SizeSortStep(),
                                           ModifiedSortStep(),
                                         ])
                                           _buildSortStepWidget(step),
@@ -1219,7 +1345,6 @@ class _BrowseViewState extends State<BrowseView> {
                                     ),
                                   );
                                 }),
-                            MediaPlayerWidget(),
                           ],
                         ),
                       );

@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:filesystem_dac/dac.dart';
+import 'package:path/path.dart';
 import 'package:vup/app.dart';
 
 import 'base.dart';
 
-class RenameDirectoryVupAction extends VupFSAction {
+class CreateFileVupAction extends VupFSAction {
   @override
   VupFSActionInstance? check(
       bool isFile,
@@ -14,15 +17,12 @@ class RenameDirectoryVupAction extends VupFSAction {
       bool hasWriteAccess,
       FileState fileState,
       bool isSelected) {
-    if (isDirectoryView) return null;
-    if (isFile) return null;
+    if (!isDirectoryView) return null;
     if (!hasWriteAccess) return null;
-    if (entity == null) return null;
-    if (fileState.type != FileStateType.idle) return null;
 
     return VupFSActionInstance(
-      label: 'Rename Directory',
-      icon: UniconsLine.pen,
+      label: 'Create new File',
+      icon: UniconsLine.file_plus,
     );
   }
 
@@ -31,13 +31,12 @@ class RenameDirectoryVupAction extends VupFSAction {
     BuildContext context,
     VupFSActionInstance instance,
   ) async {
-    final ctrl = TextEditingController(text: instance.entity.name);
-    ctrl.selection =
-        TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+    final ctrl = TextEditingController(text: 'todo.txt');
+    ctrl.selection = const TextSelection(baseOffset: 0, extentOffset: 4);
     final name = await showDialog<String?>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Rename your directory'),
+        title: const Text('Name your new file'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -50,28 +49,23 @@ class RenameDirectoryVupAction extends VupFSAction {
           ),
           TextButton(
             onPressed: () => context.pop(ctrl.text),
-            child: const Text('Rename'),
+            child: const Text('Create'),
           ),
         ],
       ),
     );
 
     if (name != null) {
-      showLoadingDialog(context, 'Renaming directory...');
       try {
-        await storageService.dac.moveDirectory(
-          instance.entity.uri,
-          storageService.dac
-              .getChildUri(
-                storageService.dac
-                    .parsePath(instance.pathNotifier.path.join('/')),
-                name.trim(),
-              )
-              .toString(),
+        final file =
+            File(join(storageService.temporaryDirectory, 'new-files', name));
+        file.createSync(recursive: true);
+
+        await storageService.startFileUploadingTask(
+          instance.pathNotifier.toCleanUri().toString(),
+          file,
         );
-        context.pop();
       } catch (e, st) {
-        context.pop();
         showErrorDialog(context, e, st);
       }
     }

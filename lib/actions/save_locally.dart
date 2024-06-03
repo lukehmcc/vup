@@ -24,7 +24,7 @@ class SaveLocallyVupAction extends VupFSAction {
     if (fileState.type != FileStateType.idle) return null;
 
     return VupFSActionInstance(
-      label: 'Save file locally',
+      label: 'Save File Locally',
       icon: UniconsLine.download_alt,
     );
   }
@@ -42,9 +42,10 @@ class SaveLocallyVupAction extends VupFSAction {
         fileName: file.name,
       );
     } else {
-      path = await file_selector.getSavePath(
+      path = (await file_selector.getSaveLocation(
         suggestedName: file.name,
-      );
+      ))!
+          .path;
     }
 
     if (path != null) {

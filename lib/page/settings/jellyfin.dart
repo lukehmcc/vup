@@ -109,7 +109,10 @@ class _JellyfinServerSettingsPageState
               Row(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 2.0),
+                    padding: const EdgeInsets.only(
+                      top: 2.0,
+                      right: 12,
+                    ),
                     child: Switch(
                       value: isJellyfinServerEnabled,
                       onChanged: jellyfinServerService.isStarting
@@ -414,7 +417,9 @@ class _JellyfinServerSettingsPageState
                             : () {
                                 setState(() {
                                   list.add({
-                                    'id': Uuid().v4().replaceAll('-', ''),
+                                    'id': const Uuid().v4().replaceAll('-', ''),
+                                    'uri': 'home/Videos',
+                                    'type': 'mixed',
                                   });
                                 });
                                 markChanges();
